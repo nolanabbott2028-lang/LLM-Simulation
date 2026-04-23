@@ -6,6 +6,7 @@ from config import (
 )
 from world import WorldState
 from world_builder import WorldBuilder
+from ui.bubbles import draw_bubble
 
 
 class Camera:
@@ -148,6 +149,11 @@ class Renderer:
             pygame.draw.circle(self.screen, (255, 220, 150), (sx, sy), r)
             name_label = self.font_sm.render(sim.name, True, (255, 255, 255))
             self.screen.blit(name_label, (sx - name_label.get_width() // 2, sy - r - 14))
+            if sim.thought_bubble and sim.thought_bubble.timer > 0:
+                draw_bubble(self.screen, self.font_sm, sim.thought_bubble.text, sx, sy - r - 16, is_thought=True)
+            if sim.speech_bubble and sim.speech_bubble.timer > 0:
+                offset = -80 if sim.thought_bubble and sim.thought_bubble.timer > 0 else 0
+                draw_bubble(self.screen, self.font_sm, sim.speech_bubble.text, sx, sy - r - 16 + offset, is_thought=False)
 
     def _draw_timeline(self):
         pygame.draw.rect(self.screen, (30, 30, 50), (0, 0, SCREEN_WIDTH, TIMELINE_HEIGHT))
