@@ -11,6 +11,8 @@ from ui.timeline import draw_timeline
 from ui.book import BookPanel
 from ui.pillars import draw_pillars
 from ui.inspector import draw_inspector
+from persistence import save_world, load_world
+import os as _os
 
 
 class Camera:
@@ -88,6 +90,15 @@ class Renderer:
                         self._pillars_open = not self._pillars_open
                     elif event.key == pygame.K_p:
                         self.world.paused = not self.world.paused
+                    elif event.key == pygame.K_F5:
+                        save_world(self.world, "savegame.json")
+                    elif event.key == pygame.K_F9:
+                        if _os.path.exists("savegame.json"):
+                            loaded = load_world("savegame.json")
+                            with self.world.lock:
+                                for k, v in loaded.__dict__.items():
+                                    if k != "lock":
+                                        setattr(self.world, k, v)
                 # Speed button clicks
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mx, my = event.pos
