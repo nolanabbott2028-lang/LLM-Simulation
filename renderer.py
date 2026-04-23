@@ -9,6 +9,8 @@ from world_builder import WorldBuilder
 from ui.bubbles import draw_bubble
 from ui.timeline import draw_timeline
 from ui.book import BookPanel
+from ui.pillars import draw_pillars
+from ui.inspector import draw_inspector
 
 
 class Camera:
@@ -57,6 +59,7 @@ class Renderer:
         self._book_open = False
         self._pillars_open = False
         self._book_panel = BookPanel()
+        self._inspected_sim_id = None
 
     def handle_input(self, events: list):
         keys = pygame.key.get_pressed()
@@ -92,6 +95,20 @@ class Renderer:
                         bx = SCREEN_WIDTH - 120 + i * 38
                         if bx < mx < bx + 32 and 6 < my < TIMELINE_HEIGHT - 6:
                             self.world.speed = s
+                    ts = int(32 * self.camera.zoom)
+                    with self.world.lock:
+                        sims = list(self.world.sims.values())
+                    clicked_sim = None
+                    for sim in sims:
+                        if not sim.alive:
+                            continue
+                        sx, sy = self.camera.world_to_screen(sim.position[0], sim.position[1])
+                        r = max(6, ts // 2)
+                        if ((mx - sx)**2 + (my - sy)**2) ** 0.5 < r + 4:
+                            clicked_sim = sim
+                            break
+                    if clicked_sim:
+                        self._inspected_sim_id = clicked_sim.id if self._inspected_sim_id != clicked_sim.id else None
                 if self._book_open:
                     self._book_panel.handle_event(event)
 
@@ -107,6 +124,15 @@ class Renderer:
         self._draw_bottom_bar()
         if self._book_open:
             self._book_panel.draw(self.screen, self.world)
+        if self._pillars_open:
+            draw_pillars(self.screen, self.world, self.font_sm)
+        if self._inspected_sim_id:
+            with self.world.lock:
+                sim = self.world.sims.get(self._inspected_sim_id)
+            if sim and sim.alive:
+                draw_inspector(self.screen, sim, self.world, self.font_sm, self.font_md)
+            else:
+                self._inspected_sim_id = None
 
     def _draw_terrain(self):
         ts = int(TILE_SIZE * self.camera.zoom)
