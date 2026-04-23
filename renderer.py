@@ -5,6 +5,7 @@ from config import (
     TERRAIN_COLORS, OBJECT_COLORS,
 )
 from world import WorldState
+from world_builder import WorldBuilder
 
 
 class Camera:
@@ -49,6 +50,9 @@ class Renderer:
         self.camera = Camera()
         self.font_sm = pygame.font.SysFont("monospace", 12)
         self.font_md = pygame.font.SysFont("monospace", 14)
+        self.world_builder = WorldBuilder(world)
+        self._book_open = False
+        self._pillars_open = False
 
     def handle_input(self, events: list):
         keys = pygame.key.get_pressed()
@@ -66,6 +70,23 @@ class Renderer:
                     self.camera.zoom_in()
                 else:
                     self.camera.zoom_out()
+            if not self.world.sim_running:
+                self.world_builder.handle_event(event, self.camera)
+            else:
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_b:
+                        self._book_open = not self._book_open
+                    elif event.key == pygame.K_c:
+                        self._pillars_open = not self._pillars_open
+                    elif event.key == pygame.K_p:
+                        self.world.paused = not self.world.paused
+                # Speed button clicks
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    mx, my = event.pos
+                    for i, s in enumerate([1, 2, 4]):
+                        bx = SCREEN_WIDTH - 120 + i * 38
+                        if bx < mx < bx + 32 and 6 < my < TIMELINE_HEIGHT - 6:
+                            self.world.speed = s
 
     def draw(self):
         self.screen.fill((20, 20, 20))
@@ -73,6 +94,8 @@ class Renderer:
         self._draw_resources()
         self._draw_structures()
         self._draw_sims()
+        if not self.world.sim_running:
+            self.world_builder.draw_toolbar(self.screen)
         self._draw_timeline()
         self._draw_bottom_bar()
 
