@@ -8,6 +8,7 @@ from world import WorldState
 from world_builder import WorldBuilder
 from ui.bubbles import draw_bubble
 from ui.timeline import draw_timeline
+from ui.book import BookPanel
 
 
 class Camera:
@@ -55,6 +56,7 @@ class Renderer:
         self.world_builder = WorldBuilder(world)
         self._book_open = False
         self._pillars_open = False
+        self._book_panel = BookPanel()
 
     def handle_input(self, events: list):
         keys = pygame.key.get_pressed()
@@ -78,6 +80,7 @@ class Renderer:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_b:
                         self._book_open = not self._book_open
+                        self._book_panel.scroll_offset = 0
                     elif event.key == pygame.K_c:
                         self._pillars_open = not self._pillars_open
                     elif event.key == pygame.K_p:
@@ -89,6 +92,8 @@ class Renderer:
                         bx = SCREEN_WIDTH - 120 + i * 38
                         if bx < mx < bx + 32 and 6 < my < TIMELINE_HEIGHT - 6:
                             self.world.speed = s
+                if self._book_open:
+                    self._book_panel.handle_event(event)
 
     def draw(self):
         self.screen.fill((20, 20, 20))
@@ -100,6 +105,8 @@ class Renderer:
             self.world_builder.draw_toolbar(self.screen)
         self._draw_timeline()
         self._draw_bottom_bar()
+        if self._book_open:
+            self._book_panel.draw(self.screen, self.world)
 
     def _draw_terrain(self):
         ts = int(TILE_SIZE * self.camera.zoom)
