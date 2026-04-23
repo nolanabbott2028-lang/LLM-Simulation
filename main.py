@@ -3,7 +3,7 @@ import threading
 from config import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 from world import WorldState
 from renderer import Renderer
-from sim_loop import run_sim_loop
+from sim_loop import run_sim_loop, autonomous_tick, _bubble_tick
 
 
 def main():
@@ -26,9 +26,10 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
         renderer.handle_input(events)
+        if world.sim_running and not world.paused:
+            autonomous_tick(world, dt)
+            _bubble_tick(world, dt)
         renderer.draw()
-        from sim_loop import _bubble_tick
-        _bubble_tick(world, dt)
         pygame.display.flip()
 
     pygame.quit()

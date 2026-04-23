@@ -12,6 +12,10 @@ BUBBLE_DURATION = 6.0
 MEMORY_LIMIT = 20
 NEARBY_RADIUS = 5 * 32
 
+# Each sim stores a target position they walk toward between LLM ticks
+# This dict maps sim_id -> (target_x, target_y)
+_sim_targets: dict = {}
+
 
 def _nearby_context(sim: Sim, world: WorldState) -> str:
     lines = []
@@ -95,11 +99,13 @@ def _apply_action(sim: Sim, response: dict, world: WorldState):
         from config import WORLD_TILES_W, WORLD_TILES_H, TILE_SIZE
         world_w = WORLD_TILES_W * TILE_SIZE
         world_h = WORLD_TILES_H * TILE_SIZE
-        dx = random.uniform(-2, 2) * 32
-        dy = random.uniform(-2, 2) * 32
-        new_x = max(0.0, min(world_w - TILE_SIZE, sim.position[0] + dx))
-        new_y = max(0.0, min(world_h - TILE_SIZE, sim.position[1] + dy))
-        sim.position = (new_x, new_y)
+        # Set a new wander target; actual movement happens in autonomous_tick each frame
+        spread = random.uniform(64, 256)
+        angle = random.uniform(0, 6.2832)
+        import math
+        tx = max(0.0, min(world_w - TILE_SIZE, sim.position[0] + math.cos(angle) * spread))
+        ty = max(0.0, min(world_h - TILE_SIZE, sim.position[1] + math.sin(angle) * spread))
+        _sim_targets[sim.id] = (tx, ty)
 
     elif action == "gather":
         for res in world.resources.values():
@@ -308,6 +314,46 @@ def _tick(world: WorldState):
             _apply_action(sim, data, world)
 
     world.advance_time()
+
+
+def autonomous_tick(world: WorldState, dt: float):
+    """Called every render frame. Moves sims smoothly toward their targets."""
+    import math
+    from config import WORLD_TILES_W, WORLD_TILES_H, TILE_SIZE
+    world_w = WORLD_TILES_W * TILE_SIZE
+    world_h = WORLD_TILES_H * TILE_SIZE
+    speed = 60.0  # pixels per second
+
+    with world.lock:
+        for sim in world.sims.values():
+            if not sim.alive:
+                continue
+            if sim.id not in _sim_targets:
+                # Give a default wander target so they move from the start
+                import random
+                spread = random.uniform(64, 200)
+                angle = random.uniform(0, 6.2832)
+                tx = max(0.0, min(world_w - TILE_SIZE, sim.position[0] + math.cos(angle) * spread))
+                ty = max(0.0, min(world_h - TILE_SIZE, sim.position[1] + math.sin(angle) * spread))
+                _sim_targets[sim.id] = (tx, ty)
+
+            tx, ty = _sim_targets[sim.id]
+            dx = tx - sim.position[0]
+            dy = ty - sim.position[1]
+            dist = math.sqrt(dx * dx + dy * dy)
+            if dist < 4.0:
+                # Reached target — pick a new wander point
+                import random
+                spread = random.uniform(64, 200)
+                angle = random.uniform(0, 6.2832)
+                ntx = max(0.0, min(world_w - TILE_SIZE, sim.position[0] + math.cos(angle) * spread))
+                nty = max(0.0, min(world_h - TILE_SIZE, sim.position[1] + math.sin(angle) * spread))
+                _sim_targets[sim.id] = (ntx, nty)
+            else:
+                step = min(speed * dt, dist)
+                nx = sim.position[0] + (dx / dist) * step
+                ny = sim.position[1] + (dy / dist) * step
+                sim.position = (nx, ny)
 
 
 def _bubble_tick(world: WorldState, dt: float):
