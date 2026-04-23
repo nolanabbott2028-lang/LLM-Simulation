@@ -92,9 +92,14 @@ def _apply_action(sim: Sim, response: dict, world: WorldState):
 
     if action in ("move", "explore"):
         import random
+        from config import WORLD_TILES_W, WORLD_TILES_H, TILE_SIZE
+        world_w = WORLD_TILES_W * TILE_SIZE
+        world_h = WORLD_TILES_H * TILE_SIZE
         dx = random.uniform(-2, 2) * 32
         dy = random.uniform(-2, 2) * 32
-        sim.position = (sim.position[0] + dx, sim.position[1] + dy)
+        new_x = max(0.0, min(world_w - TILE_SIZE, sim.position[0] + dx))
+        new_y = max(0.0, min(world_h - TILE_SIZE, sim.position[1] + dy))
+        sim.position = (new_x, new_y)
 
     elif action == "gather":
         for res in world.resources.values():
