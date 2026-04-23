@@ -7,6 +7,7 @@ from config import (
 from world import WorldState
 from world_builder import WorldBuilder
 from ui.bubbles import draw_bubble
+from ui.timeline import draw_timeline
 
 
 class Camera:
@@ -156,23 +157,7 @@ class Renderer:
                 draw_bubble(self.screen, self.font_sm, sim.speech_bubble.text, sx, sy - r - 16 + offset, is_thought=False)
 
     def _draw_timeline(self):
-        pygame.draw.rect(self.screen, (30, 30, 50), (0, 0, SCREEN_WIDTH, TIMELINE_HEIGHT))
-        with self.world.lock:
-            year = self.world.sim_year
-            day = self.world.sim_day
-            era = self.world.current_era()
-            speed = self.world.speed
-        text = f"Year {year}, Day {day}  |  {era}"
-        label = self.font_md.render(text, True, (220, 220, 255))
-        self.screen.blit(label, (10, TIMELINE_HEIGHT // 2 - label.get_height() // 2))
-        # Speed buttons
-        for i, s in enumerate([1, 2, 4]):
-            color = (80, 160, 80) if speed == s else (60, 60, 80)
-            bx = SCREEN_WIDTH - 120 + i * 38
-            by = 6
-            pygame.draw.rect(self.screen, color, (bx, by, 32, TIMELINE_HEIGHT - 12), border_radius=4)
-            lbl = self.font_sm.render(f"{s}x", True, (255, 255, 255))
-            self.screen.blit(lbl, (bx + 8, by + 6))
+        draw_timeline(self.screen, self.world, self.font_sm, self.font_md)
 
     def _draw_bottom_bar(self):
         by = SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT
