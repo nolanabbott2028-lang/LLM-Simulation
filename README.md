@@ -23,6 +23,8 @@ pip install -r requirements.txt
 # restart ./serve.sh
 ```
 
+If the repository is **private**, clone/pull on the server needs authentication: add a [Deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys) (read-only) to this repo, or use `git` over SSH with a key on the instance.
+
 ## Repository
 
 `https://github.com/nolanabbott2028-lang/LLM-Simulation`
