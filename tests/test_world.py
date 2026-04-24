@@ -22,6 +22,7 @@ def test_world_defaults():
     assert w.laws == []
     assert w.technologies == []
     assert w.milestones == set()
+    assert w.language_progress == 0.0
     assert w.sim_running is False
     assert w.paused is False
     assert w.speed == 1

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Civilization Sim — World Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="top-bar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="brand-text">
+          <strong>CIVILIZATION SIM</strong>
+          <span class="brand-sub">WORLD MAP</span>
+        </div>
+      </div>
+      <div class="top-meta" id="top-meta">
+        <span id="sim-status-chip" class="meta-chip sim-status-chip stopped" title="Simulation clock"
+          >⏹ Stopped</span
+        >
+        <span class="meta-chip"
+          ><span class="meta-ic">📅</span> <span id="hdr-era-year">Year 1 · Day 0 — Stone Age</span></span
+        >
+      </div>
+      <div class="top-stats" id="hdr-stats"></div>
+      <div class="top-controls">
+        <button type="button" id="btn-pause" class="tb-btn" title="Pause">❚❚</button>
+        <button type="button" id="btn-run" class="tb-btn primary" title="Run">▶</button>
+        <div class="speed-wrap">
+          <label class="sr-only" for="speed-range">Speed</label>
+          <input id="speed-range" type="range" min="1" max="100" value="1" />
+          <span id="speed-val" class="speed-label">1×</span>
+        </div>
+        <button type="button" id="btn-settings" class="tb-btn" title="Settings" aria-label="Settings">⚙</button>
+      </div>
+    </header>
+
+    <aside id="panel-left" class="glass-panel">
+      <div class="panel-head">Layers</div>
+      <div class="layer-list" id="layer-list">
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="ideology" /> Ideology</label>
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="war" /> Wars</label>
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="economy" /> Resources</label>
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="propaganda" /> Influence</label>
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="stability" /> Stress</label>
+        <label class="layer-row"><span class="eye">◉</span><input type="checkbox" data-overlay="trade_flow" /> Trade routes</label>
+        <label class="layer-row" title="Used only if world-map.png fails to load"
+          ><span class="eye">◉</span><input type="checkbox" id="terrain-toggle" checked /> Terrain fallback</label>
+      </div>
+      <div class="panel-head">Legend</div>
+      <div id="legend-factions" class="legend-list"></div>
+      <div class="legend-key muted small">
+        <div><span class="dot sm cap"></span> Agent</div>
+        <div><span class="arrow-ic">→</span> Trade flow</div>
+      </div>
+
+      <div class="panel-divider"></div>
+      <div class="panel-head">Replay</div>
+      <label class="layer-row"><input type="checkbox" id="live-mode" checked /> Live feed</label>
+      <div class="replay-row">
+        <span class="small muted">Frame</span>
+        <span id="replay-idx">0</span> / <span id="replay-max">0</span>
+      </div>
+      <input id="replay-slider" type="range" min="0" max="0" value="0" disabled class="replay-slider" />
+      <button type="button" id="btn-replay-clear" class="btn-ghost small">Clear buffer</button>
+
+      <div class="panel-divider"></div>
+      <div class="panel-head">Start world</div>
+      <label class="layer-row" title="Requires empty or all-dead population"
+        ><span class="eye">◇</span><input type="checkbox" id="founders-mode" /> Place Adam &amp; Eve — click map</label
+      >
+      <button type="button" id="btn-founders-center" class="btn-ghost small founders-btn">
+        Or spawn Adam &amp; Eve at world center
+      </button>
+      <p class="muted small founders-hint" id="founders-hint">
+        Spawns founders at the click point and starts the clock (only when no living sims). With
+        <code>python3 main.py</code>, the live server snapshot is used. Add <code>?local=1</code> to the URL
+        for browser-only mode without the Python sim.
+      </p>
+
+      <div class="panel-divider"></div>
+      <div class="panel-head">Macros</div>
+      <div class="btn-stack">
+        <button type="button" data-event="famine" class="btn-ghost">Famine stress</button>
+        <button type="button" data-event="war_drums" class="btn-ghost">War drums</button>
+        <button type="button" data-event="leader_shift" class="btn-ghost">Leadership stir</button>
+      </div>
+    </aside>
+
+    <main id="map-wrap">
+      <canvas id="world-canvas"></canvas>
+      <div id="pixel-terrain-legend" class="pixel-terrain-legend" aria-hidden="true">
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#123d5e"></span><span class="pixel-ll">deep water</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#1e6fa0"></span><span class="pixel-ll">water</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#c8b46a"></span><span class="pixel-ll">sand</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#4a8a2c"></span><span class="pixel-ll">plains</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#1e5c12"></span><span class="pixel-ll">forest</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#7a8c6a"></span><span class="pixel-ll">highland</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#8a7a68"></span><span class="pixel-ll">mountain</span></div>
+        <div class="pixel-lr"><span class="pixel-ls" style="background:#e0dcd6"></span><span class="pixel-ll">snow</span></div>
+        <div class="pixel-lr"><span class="pixel-ls pixel-ls-round" style="background:#8B4513"></span><span class="pixel-ll">oak tree</span></div>
+        <div class="pixel-lr"><span class="pixel-ls pixel-ls-round" style="background:#2d8a1a"></span><span class="pixel-ll">pine tree</span></div>
+        <div class="pixel-lr"><span class="pixel-ls pixel-ls-round" style="background:#888"></span><span class="pixel-ll">rock</span></div>
+        <div class="pixel-lr"><span class="pixel-ls pixel-ls-round" style="background:#c0392b"></span><span class="pixel-ll">fruit bush</span></div>
+        <div class="pixel-lr"><span class="pixel-ls pixel-ls-round" style="background:#8B6914"></span><span class="pixel-ll">ore deposit</span></div>
+      </div>
+      <div id="pixel-map-hud" class="pixel-map-hud">
+        <button type="button" class="pixel-hb" id="pixel-zi" title="Zoom in">+</button>
+        <button type="button" class="pixel-hb" id="pixel-zo" title="Zoom out">−</button>
+        <div id="pixel-zoom-lbl" class="pixel-zl">1.0×</div>
+      </div>
+      <div id="pixel-terrain-tt" class="pixel-terrain-tt"></div>
+      <div class="map-overlay-hint" id="map-hint-wrap">
+        <div id="focus-hint">Select an agent for details —</div>
+        <div id="map-zoom-hint" class="muted small"></div>
+      </div>
+    </main>
+
+    <aside id="panel-right" class="glass-panel">
+      <div class="panel-head">Resources</div>
+      <div id="resource-grid" class="resource-grid"></div>
+
+      <div class="panel-head">Selected agent</div>
+      <div id="agent-card" class="agent-card empty">
+        <p class="muted small">Click the map to inspect someone.</p>
+      </div>
+
+      <div class="panel-head">World</div>
+      <dl id="stats-dl" class="stats-dl"></dl>
+      <div class="panel-head small">Dominant attitudes</div>
+      <ul id="dom-ideology" class="dom-list"></ul>
+      <div class="panel-head small">Bookmark</div>
+      <div id="bookmark-panel" class="bookmark-box muted">—</div>
+      <div class="panel-head small">Detail</div>
+      <div id="focus-panel" class="focus-scroll"><p class="muted small">—</p></div>
+
+      <div class="tool-rail" aria-hidden="true">
+        <span title="Pan">✥</span>
+        <span title="Select">◎</span>
+        <span title="People">👤</span>
+      </div>
+    </aside>
+
+    <footer id="bottom-bar">
+      <div class="bottom-col event-feed">
+        <div class="bottom-head">Event log</div>
+        <div id="event-log" class="event-log"></div>
+      </div>
+      <div class="bottom-col timeline-zone">
+        <div class="bottom-head">Timeline &amp; era</div>
+        <div id="era-strip" class="era-strip muted small"></div>
+        <div id="timeline-strip" class="timeline-chips"></div>
+        <div class="scrub-wrap">
+          <span class="scrub-year" id="scrub-label">Year 1 · Day 0</span>
+        </div>
+      </div>
+      <div class="bottom-col minimap-col">
+        <div class="bottom-head">World</div>
+        <div class="minimap-frame">
+          <canvas id="minimap-canvas" width="180" height="120"></canvas>
+        </div>
+      </div>
+    </footer>
+  </div>
+  <script src="assets/pixel_terrain_map.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

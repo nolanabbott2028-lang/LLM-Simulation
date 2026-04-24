@@ -6,33 +6,45 @@ from config import (
 )
 from world import WorldState
 from entities.resource import ResourceObject
+from ui import theme
 import uuid
 
 
 TERRAIN_BRUSHES = ["grass", "forest", "water", "mountain", "desert", "snow"]
-OBJECT_BRUSHES = ["berry_bush", "stone_deposit", "tree", "river_source",
-                  "animal_spawn", "hut", "shrine", "farm_plot"]
+OBJECT_BRUSHES = [
+    "berry_bush", "stone_deposit", "tree", "river_source",
+    "animal_spawn", "hut", "shrine", "farm_plot",
+]
 BRUSH_SIZES = [1, 2, 3, 4, 5]
 
 
+def _rrect(surf, r: pygame.Rect, color, rad: int, width: int = 0) -> None:
+    pygame.draw.rect(surf, color, r, width, border_radius=rad)
+
+
 class WorldBuilder:
-    def __init__(self, world: WorldState):
+    def __init__(self, world: WorldState, font_sm, font_md):
         self.world = world
-        self.phase = "terrain"       # "terrain" | "objects" | "spawn"
+        self.font = font_sm
+        self.font_md = font_md
+        self.phase = "terrain"
         self.selected_brush = "grass"
         self.brush_size = 1
-        self.font = pygame.font.SysFont("monospace", 13)
-        self.spawn_waiting = False   # True after "Begin Civilization" clicked
+        self.spawn_waiting = False
+
+    def _phase_rects(self) -> tuple[pygame.Rect, pygame.Rect]:
+        t0 = TIMELINE_HEIGHT + 8
+        w = TOOLBAR_WIDTH - 20
+        r0 = pygame.Rect(10, t0, w, 28)
+        r1 = pygame.Rect(10, t0 + 34, w, 28)
+        return r0, r1
 
     def handle_event(self, event: pygame.event.Event, camera) -> bool:
-        """Returns True if event was consumed."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
-            # Toolbar click
             if mx < TOOLBAR_WIDTH:
                 self._handle_toolbar_click(mx, my)
                 return True
-            # Canvas click
             if my > TIMELINE_HEIGHT and my < SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT:
                 wx, wy = camera.screen_to_world(mx, my)
                 if self.phase == "terrain":
@@ -44,32 +56,50 @@ class WorldBuilder:
                 return True
         if event.type == pygame.MOUSEMOTION and pygame.mouse.get_pressed()[0]:
             mx, my = event.pos
-            if mx >= TOOLBAR_WIDTH and my > TIMELINE_HEIGHT and my < SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT:
+            if (
+                mx >= TOOLBAR_WIDTH
+                and my > TIMELINE_HEIGHT
+                and my < SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT
+            ):
                 wx, wy = camera.screen_to_world(mx, my)
                 if self.phase == "terrain":
                     self._paint_terrain(wx, wy)
                 return True
         return False
 
-    def _handle_toolbar_click(self, mx: int, my: int):
-        # Phase toggle buttons at top
-        if 50 < my < 70:
+    def _handle_toolbar_click(self, mx: int, my: int) -> None:
+        r0, r1 = self._phase_rects()
+        if r0.collidepoint(mx, my):
             self.phase = "terrain"
-        elif 75 < my < 95:
+            return
+        if r1.collidepoint(mx, my):
             self.phase = "objects"
-        # Brush buttons
+            return
+
         brushes = TERRAIN_BRUSHES if self.phase == "terrain" else OBJECT_BRUSHES
+        row_h = 30
+        start_y = r1.bottom + 12
         for i, b in enumerate(brushes):
-            btn_y = 110 + i * 28
-            if btn_y < my < btn_y + 24:
+            by = start_y + i * row_h
+            br = pygame.Rect(8, by, TOOLBAR_WIDTH - 16, 26)
+            if br.collidepoint(mx, my):
                 self.selected_brush = b
-        # Brush size
-        for i, s in enumerate(BRUSH_SIZES):
-            bx = 10 + i * 26
-            if bx < mx < bx + 22 and 310 < my < 332:
-                self.brush_size = s
-        # Begin Civilization button
-        if 20 < mx < TOOLBAR_WIDTH - 20 and SCREEN_HEIGHT - 120 < my < SCREEN_HEIGHT - 90:
+                return
+
+        if self.phase == "terrain":
+            list_bottom = start_y + len(brushes) * row_h
+            size_y = list_bottom + 6
+            for i, s in enumerate(BRUSH_SIZES):
+                bx = 10 + i * 30
+                if (
+                    bx < mx < bx + 28
+                    and size_y + 16 < my < size_y + 16 + 28
+                ):
+                    self.brush_size = s
+                    return
+
+        begin = pygame.Rect(12, SCREEN_HEIGHT - 128, TOOLBAR_WIDTH - 24, 36)
+        if begin.collidepoint(mx, my):
             self.phase = "spawn"
             self.spawn_waiting = True
 
@@ -103,45 +133,75 @@ class WorldBuilder:
         self.phase = "done"
         self.spawn_waiting = False
 
-    def draw_toolbar(self, screen: pygame.Surface):
-        pygame.draw.rect(screen, (25, 25, 45), (0, TIMELINE_HEIGHT, TOOLBAR_WIDTH, SCREEN_HEIGHT - TIMELINE_HEIGHT))
-        f = self.font
+    def draw_toolbar(self, screen: pygame.Surface) -> None:
+        panel = pygame.Rect(0, TIMELINE_HEIGHT, TOOLBAR_WIDTH, SCREEN_HEIGHT - TIMELINE_HEIGHT)
+        _rrect(screen, panel, theme.BG_PANEL, 0, 0)
+        pygame.draw.line(
+            screen, theme.BORDER_SUBTLE, (TOOLBAR_WIDTH - 1, TIMELINE_HEIGHT), (TOOLBAR_WIDTH - 1, SCREEN_HEIGHT)
+        )
+        f, fm = self.font, self.font_md
+        hlabel = fm.render("Build", True, theme.TEXT)
+        screen.blit(hlabel, (14, TIMELINE_HEIGHT + 4))
 
-        # Phase buttons
-        for i, (label, phase) in enumerate([("Terrain", "terrain"), ("Objects", "objects")]):
-            color = (60, 120, 60) if self.phase == phase else (50, 50, 70)
-            pygame.draw.rect(screen, color, (5, TIMELINE_HEIGHT + 5 + i * 28, TOOLBAR_WIDTH - 10, 22), border_radius=3)
-            lbl = f.render(label, True, (220, 220, 220))
-            screen.blit(lbl, (10, TIMELINE_HEIGHT + 9 + i * 28))
+        r0, r1 = self._phase_rects()
+        for rect, (label, phase) in (
+            (r0, ("Terrain", "terrain")),
+            (r1, ("Objects", "objects")),
+        ):
+            on = self.phase == phase
+            _rrect(
+                screen, rect,
+                theme.ACCENT if on else theme.BG_PANEL_ELEV, 6, 0
+            )
+            if on:
+                _rrect(screen, rect, theme.ACCENT_MUTED, 6, 2)
+            t = f.render(label, True, theme.TEXT)
+            screen.blit(t, (rect.x + 10, rect.y + rect.h // 2 - t.get_height() // 2))
 
-        # Brush list
-        brushes = TERRAIN_BRUSHES if self.phase in ("terrain",) else OBJECT_BRUSHES
+        brushes = TERRAIN_BRUSHES if self.phase == "terrain" else OBJECT_BRUSHES
+        row_h = 30
+        start_y = r1.bottom + 12
         for i, b in enumerate(brushes):
-            by = TIMELINE_HEIGHT + 70 + i * 28
-            color = (80, 150, 80) if b == self.selected_brush else (40, 40, 60)
-            pygame.draw.rect(screen, color, (5, by, TOOLBAR_WIDTH - 10, 22), border_radius=3)
-            dot_color = TERRAIN_COLORS.get(b) or OBJECT_COLORS.get(b, (200, 200, 200))
-            pygame.draw.circle(screen, dot_color, (18, by + 11), 7)
-            lbl = f.render(b.replace("_", " ").title()[:14], True, (220, 220, 220))
-            screen.blit(lbl, (30, by + 4))
+            by = start_y + i * row_h
+            rect = pygame.Rect(8, by, TOOLBAR_WIDTH - 16, 26)
+            on = b == self.selected_brush
+            _rrect(screen, rect, theme.ACCENT_DIM if on else theme.BG_PANEL_ELEV, 5, 0)
+            if on:
+                _rrect(screen, rect, theme.ACCENT, 5, 1)
+            dot = TERRAIN_COLORS.get(b) or OBJECT_COLORS.get(b, (200, 200, 200))
+            pygame.draw.circle(screen, dot, (rect.x + 16, rect.centery), 6)
+            lbl = f.render(b.replace("_", " ").title()[:14], True, theme.TEXT)
+            screen.blit(lbl, (rect.x + 28, rect.y + 5))
 
-        # Brush size (terrain only)
         if self.phase == "terrain":
-            size_y = TIMELINE_HEIGHT + 70 + len(brushes) * 28 + 10
-            screen.blit(f.render("Size:", True, (180, 180, 200)), (10, size_y))
+            list_bottom = start_y + len(brushes) * row_h
+            size_y = list_bottom + 4
+            screen.blit(f.render("Brush size", True, theme.TEXT_MUTED), (10, size_y))
             for i, s in enumerate(BRUSH_SIZES):
-                bx = 10 + i * 26
-                color = (80, 150, 80) if s == self.brush_size else (50, 50, 70)
-                pygame.draw.rect(screen, color, (bx, size_y + 18, 22, 22), border_radius=3)
-                lbl = f.render(str(s), True, (255, 255, 255))
-                screen.blit(lbl, (bx + 6, size_y + 22))
+                bx = 10 + i * 30
+                brect = pygame.Rect(bx, size_y + 18, 28, 28)
+                on = s == self.brush_size
+                _rrect(screen, brect, theme.OK if on else theme.BG_PANEL_ELEV, 4, 0)
+                t = f.render(str(s), True, theme.TEXT)
+                screen.blit(
+                    t,
+                    (
+                        brect.centerx - t.get_width() // 2,
+                        brect.centery - t.get_height() // 2,
+                    ),
+                )
 
-        # Begin Civilization button
-        btn_color = (100, 60, 160) if self.phase == "spawn" else (70, 40, 120)
-        pygame.draw.rect(screen, btn_color, (10, SCREEN_HEIGHT - 130, TOOLBAR_WIDTH - 20, 32), border_radius=5)
-        lbl = f.render("Begin Civ.", True, (255, 240, 255))
-        screen.blit(lbl, (18, SCREEN_HEIGHT - 122))
+        begin = pygame.Rect(12, SCREEN_HEIGHT - 128, TOOLBAR_WIDTH - 24, 36)
+        _rrect(
+            screen, begin,
+            theme.ACCENT if self.phase == "spawn" else theme.ACCENT_MUTED, 7, 0
+        )
+        t = f.render("Begin civ.", True, (255, 255, 255))
+        screen.blit(
+            t,
+            (begin.centerx - t.get_width() // 2, begin.centery - t.get_height() // 2),
+        )
 
         if self.spawn_waiting:
-            hint = f.render("Click to spawn", True, (200, 255, 200))
-            screen.blit(hint, (5, SCREEN_HEIGHT - 90))
+            hint = f.render("Click on the map to place both people", True, theme.OK)
+            screen.blit(hint, (10, SCREEN_HEIGHT - 84))

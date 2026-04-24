@@ -1,11 +1,15 @@
 import pygame
+import os
 from config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE, FPS,
-    TIMELINE_HEIGHT, TOOLBAR_WIDTH, BOTTOM_BAR_HEIGHT,
+    TIMELINE_HEIGHT, TOOLBAR_WIDTH, BOTTOM_BAR_HEIGHT, UI_MAP_PADDING,
     TERRAIN_COLORS, OBJECT_COLORS,
+    SIM_SPRITE_IDLE, SIM_SPRITE_WALK, SIM_SPRITE_SWIM, SIM_SPRITE_BASE_HEIGHT,
 )
 from world import WorldState
 from world_builder import WorldBuilder
+from map_context import map_surface_for_render, world_pixel_size
+from ui import theme
 from ui.bubbles import draw_bubble
 from ui.timeline import draw_timeline
 from ui.book import BookPanel
@@ -15,36 +19,56 @@ from persistence import save_world, load_world
 import os as _os
 
 
+ZOOM_IN_FACTOR = 1.18
+ZOOM_OUT_DIVISOR = 1.18
+ZOOM_MAX = 2.0
+ZOOM_MIN = 0.04  # can zoom out from initial fit; enough to see context
+
+
 class Camera:
     def __init__(self):
-        self.x = 0.0  # world pixel offset
+        self.x = 0.0
         self.y = 0.0
         self.zoom = 1.0
-        self._zoom_levels = [0.5, 1.0, 2.0]
-        self._zoom_index = 1
+        # Map is drawn in this screen rectangle (excludes timeline, toolbars, padding)
+        self._vx = 0
+        self._vy = 0
+        self._vw = SCREEN_WIDTH
+        self._vh = 600
+
+    def set_viewport(self, vx: int, vy: int, vw: int, vh: int) -> None:
+        self._vx = vx
+        self._vy = vy
+        self._vw = max(1, vw)
+        self._vh = max(1, vh)
+
+    def fit_world_map(
+        self, world_w: int, world_h: int, view_w: int, view_h: int
+    ) -> None:
+        if world_w <= 0 or world_h <= 0 or view_w <= 0 or view_h <= 0:
+            return
+        self.zoom = min(view_w / world_w, view_h / world_h)
+        self.x = 0.0
+        self.y = 0.0
 
     def pan(self, dx: float, dy: float):
         self.x += dx
         self.y += dy
 
     def zoom_in(self):
-        if self._zoom_index < len(self._zoom_levels) - 1:
-            self._zoom_index += 1
-            self.zoom = self._zoom_levels[self._zoom_index]
+        self.zoom = min(ZOOM_MAX, self.zoom * ZOOM_IN_FACTOR)
 
     def zoom_out(self):
-        if self._zoom_index > 0:
-            self._zoom_index -= 1
-            self.zoom = self._zoom_levels[self._zoom_index]
+        self.zoom = max(ZOOM_MIN, self.zoom / ZOOM_OUT_DIVISOR)
 
     def world_to_screen(self, wx: float, wy: float) -> tuple[int, int]:
-        sx = int((wx - self.x) * self.zoom)
-        sy = int((wy - self.y) * self.zoom) + TIMELINE_HEIGHT
+        sx = int((wx - self.x) * self.zoom) + self._vx
+        sy = int((wy - self.y) * self.zoom) + self._vy
         return sx, sy
 
     def screen_to_world(self, sx: int, sy: int) -> tuple[float, float]:
-        wx = sx / self.zoom + self.x
-        wy = (sy - TIMELINE_HEIGHT) / self.zoom + self.y
+        wx = (sx - self._vx) / self.zoom + self.x
+        wy = (sy - self._vy) / self.zoom + self.y
         return wx, wy
 
 
@@ -54,16 +78,52 @@ class Renderer:
     def __init__(self, screen: pygame.Surface, world: WorldState):
         self.screen = screen
         self.world = world
+        self.font_sm, self.font_md, self.font_lg = theme.load_ui_fonts()
         self.camera = Camera()
-        self.font_sm = pygame.font.SysFont("monospace", 12)
-        self.font_md = pygame.font.SysFont("monospace", 14)
-        self.world_builder = WorldBuilder(world)
+        self._canvas_rect = pygame.Rect(0, 0, 1, 1)
+        self._sync_viewport()
+        self.world_builder = WorldBuilder(world, self.font_sm, self.font_md)
         self._book_open = False
         self._pillars_open = False
         self._book_panel = BookPanel()
         self._inspected_sim_id = None
+        self._spr_idle, self._spr_walk, self._spr_swim = self._load_sim_sprites()
+        self._fit_camera_to_map()
+
+    def _sync_viewport(self) -> None:
+        """Map content lives in a padded region to the right of the builder toolbar (or full width in sim)."""
+        p = UI_MAP_PADDING
+        top = TIMELINE_HEIGHT + p
+        bottom_pad = p
+        if not self.world.sim_running:
+            left = TOOLBAR_WIDTH + p
+            vw = SCREEN_WIDTH - TOOLBAR_WIDTH - 2 * p
+        else:
+            left = p
+            vw = SCREEN_WIDTH - 2 * p
+        vh = SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT - top - bottom_pad
+        vw = max(1, int(vw))
+        vh = max(1, int(vh))
+        self._canvas_rect = pygame.Rect(left, top, vw, vh)
+        self.camera.set_viewport(left, top, vw, vh)
+
+    def _fit_camera_to_map(self) -> None:
+        self._sync_viewport()
+        W, H = world_pixel_size()
+        self.camera.fit_world_map(W, H, self._canvas_rect.w, self._canvas_rect.h)
+
+    def _load_sim_sprites(self) -> tuple:
+        out = []
+        for path in (SIM_SPRITE_IDLE, SIM_SPRITE_WALK, SIM_SPRITE_SWIM):
+            if os.path.isfile(path):
+                s = pygame.image.load(path).convert_alpha()
+                out.append(s)
+            else:
+                out.append(None)
+        return (out[0], out[1], out[2])
 
     def handle_input(self, events: list):
+        self._sync_viewport()
         keys = pygame.key.get_pressed()
         dx = dy = 0.0
         if keys[pygame.K_LEFT]  or keys[pygame.K_a]: dx -= self.PAN_SPEED / self.camera.zoom
@@ -75,10 +135,14 @@ class Renderer:
 
         for event in events:
             if event.type == pygame.MOUSEWHEEL:
-                if event.y > 0:
-                    self.camera.zoom_in()
-                else:
-                    self.camera.zoom_out()
+                mx, my = pygame.mouse.get_pos()
+                if self._canvas_rect.collidepoint(mx, my):
+                    if event.y > 0:
+                        self.camera.zoom_in()
+                    else:
+                        self.camera.zoom_out()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_HOME:
+                self._fit_camera_to_map()
             if not self.world.sim_running:
                 self.world_builder.handle_event(event, self.camera)
             else:
@@ -103,10 +167,11 @@ class Renderer:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     mx, my = event.pos
                     for i, s in enumerate([1, 2, 4]):
-                        bx = SCREEN_WIDTH - 120 + i * 38
+                        bx = SCREEN_WIDTH - 116 + i * 38
                         if bx < mx < bx + 32 and 6 < my < TIMELINE_HEIGHT - 6:
                             self.world.speed = s
-                    ts = int(32 * self.camera.zoom)
+                    hpx = int(SIM_SPRITE_BASE_HEIGHT * self.camera.zoom)
+                    r_hit = max(14, hpx * 0.28)
                     with self.world.lock:
                         sims = list(self.world.sims.values())
                     clicked_sim = None
@@ -114,8 +179,8 @@ class Renderer:
                         if not sim.alive:
                             continue
                         sx, sy = self.camera.world_to_screen(sim.position[0], sim.position[1])
-                        r = max(6, ts // 2)
-                        if ((mx - sx)**2 + (my - sy)**2) ** 0.5 < r + 4:
+                        mcx, mcy = sx, sy - hpx // 2
+                        if ((mx - mcx) ** 2 + (my - mcy) ** 2) ** 0.5 < r_hit + 10:
                             clicked_sim = sim
                             break
                     if clicked_sim:
@@ -124,11 +189,17 @@ class Renderer:
                     self._book_panel.handle_event(event)
 
     def draw(self):
-        self.screen.fill((20, 20, 20))
+        self._sync_viewport()
+        self.screen.fill(theme.BG_APP)
+        pygame.draw.rect(self.screen, theme.BG_CANVAS, self._canvas_rect, border_radius=10)
+        pygame.draw.rect(self.screen, theme.BORDER_SUBTLE, self._canvas_rect, 1, border_radius=10)
+        prev = self.screen.get_clip()
+        self.screen.set_clip(self._canvas_rect)
         self._draw_terrain()
         self._draw_resources()
         self._draw_structures()
         self._draw_sims()
+        self.screen.set_clip(prev)
         if not self.world.sim_running:
             self.world_builder.draw_toolbar(self.screen)
         self._draw_timeline()
@@ -146,6 +217,21 @@ class Renderer:
                 self._inspected_sim_id = None
 
     def _draw_terrain(self):
+        map_surf = map_surface_for_render()
+        cr = self._canvas_rect
+        if map_surf is not None and cr.h > 0 and cr.w > 0:
+            W, H = world_pixel_size()
+            zw = cr.w / self.camera.zoom
+            zh = cr.h / self.camera.zoom
+            x0 = max(0, int(self.camera.x))
+            y0 = max(0, int(self.camera.y))
+            subw = min(int(zw), W - x0)
+            subh = min(int(zh), H - y0)
+            if subw > 0 and subh > 0:
+                sub = map_surf.subsurface((x0, y0, subw, subh))
+                scaled = pygame.transform.scale(sub, (cr.w, cr.h))
+                self.screen.blit(scaled, (cr.x, cr.y))
+                return
         ts = int(TILE_SIZE * self.camera.zoom)
         with self.world.lock:
             terrain = [row[:] for row in self.world.terrain]
@@ -156,9 +242,11 @@ class Renderer:
                 wx = c * TILE_SIZE
                 wy = r * TILE_SIZE
                 sx, sy = self.camera.world_to_screen(wx, wy)
-                if -ts < sx < SCREEN_WIDTH and TIMELINE_HEIGHT - ts < sy < SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT:
-                    color = TERRAIN_COLORS.get(terrain[r][c], (100, 100, 100))
-                    pygame.draw.rect(self.screen, color, (sx, sy, ts, ts))
+                tile = pygame.Rect(sx, sy, ts, ts)
+                if not cr.colliderect(tile):
+                    continue
+                color = TERRAIN_COLORS.get(terrain[r][c], (100, 100, 100))
+                pygame.draw.rect(self.screen, color, tile)
 
     def _draw_resources(self):
         ts = int(TILE_SIZE * self.camera.zoom)
@@ -306,26 +394,53 @@ class Renderer:
             badge = self.font_sm.render(sim.role[:3], True, accent)
             self.screen.blit(badge, (sx - badge.get_width() // 2, hy - hr - int(14 * s)))
 
-        # --- health bar ---
+        head_for_layout = hy - hr
+        self._draw_sim_bars_name(sx, head_for_layout, sim, s)
+        return head_for_layout
+
+    def _draw_sim_bars_name(self, sx: int, head_top: int, sim, z: float):
+        s = max(0.5, z)
         bar_w = int(24 * s)
         bar_h = max(2, int(3 * s))
         bar_x = sx - bar_w // 2
-        bar_y = hy - hr - int(6 * s)
+        bar_y = head_top - int(8 * s)
         pygame.draw.rect(self.screen, (80, 0, 0), (bar_x, bar_y, bar_w, bar_h))
         filled = int(bar_w * sim.health / 100)
         hp_color = (60, 200, 60) if sim.health > 60 else (220, 180, 0) if sim.health > 30 else (220, 40, 40)
         if filled > 0:
             pygame.draw.rect(self.screen, hp_color, (bar_x, bar_y, filled, bar_h))
-
-        # --- name label ---
         name_surf = self.font_sm.render(sim.name, True, (255, 255, 255))
         shadow = self.font_sm.render(sim.name, True, (0, 0, 0))
         nx = sx - name_surf.get_width() // 2
-        ny = hy - hr - int(20 * s)
+        ny = head_top - int(18 * s)
         self.screen.blit(shadow, (nx + 1, ny + 1))
         self.screen.blit(name_surf, (nx, ny))
 
-        return hy - hr  # top of head for bubble placement
+    def _blit_sim_sprite(self, sx: int, sy: int, sim, z: float) -> int:
+        """Image-based sim; returns y of top of head for bubbles."""
+        hpx = max(4, int(SIM_SPRITE_BASE_HEIGHT * z))
+        src = None
+        if sim.in_water and self._spr_swim is not None:
+            src = self._spr_swim
+        elif sim.moving and self._spr_walk is not None and self._spr_idle is not None:
+            src = self._spr_walk if sim.walk_cycle < 0.5 else self._spr_idle
+        elif sim.moving and self._spr_walk is not None:
+            src = self._spr_walk
+        else:
+            src = self._spr_idle
+        if src is None:
+            return self._draw_sim_character(sx, sy, sim, z)
+        ow, oh = src.get_size()
+        if oh <= 0:
+            return self._draw_sim_character(sx, sy, sim, z)
+        dw = max(1, int(ow * hpx / oh))
+        scaled = pygame.transform.scale(src, (dw, hpx))
+        if sim.facing < 0 and not sim.in_water:
+            scaled = pygame.transform.flip(scaled, True, False)
+        rect = scaled.get_rect(midbottom=(sx, sy))
+        self.screen.blit(scaled, rect)
+        self._draw_sim_bars_name(sx, rect.top, sim, z)
+        return rect.top
 
     def _draw_sims(self):
         with self.world.lock:
@@ -335,7 +450,7 @@ class Renderer:
                 continue
             sx, sy = self.camera.world_to_screen(sim.position[0], sim.position[1])
             scale = self.camera.zoom
-            head_top = self._draw_sim_character(sx, sy, sim, scale)
+            head_top = self._blit_sim_sprite(sx, sy, sim, scale)
             bubble_y = head_top - 4
             if sim.thought_bubble and sim.thought_bubble.timer > 0:
                 draw_bubble(self.screen, self.font_sm, sim.thought_bubble.text, sx, bubble_y, is_thought=True)
@@ -348,7 +463,10 @@ class Renderer:
 
     def _draw_bottom_bar(self):
         by = SCREEN_HEIGHT - BOTTOM_BAR_HEIGHT
-        pygame.draw.rect(self.screen, (30, 30, 50), (0, by, SCREEN_WIDTH, BOTTOM_BAR_HEIGHT))
-        hints = "[B] Book  [C] Pillars  [P] Pause  [ESC] Menu"
-        lbl = self.font_sm.render(hints, True, (180, 180, 200))
-        self.screen.blit(lbl, (10, by + BOTTOM_BAR_HEIGHT // 2 - lbl.get_height() // 2))
+        pygame.draw.rect(self.screen, theme.TL_BG_TOP, (0, by, SCREEN_WIDTH, BOTTOM_BAR_HEIGHT))
+        pygame.draw.line(
+            self.screen, theme.BORDER_SUBTLE, (0, by), (SCREEN_WIDTH, by), 1
+        )
+        hints = "  [B] Book   [C] Pillars   [P] Pause   [Home] Fit map   [F5] Save   [F9] Load  "
+        lbl = self.font_sm.render(hints, True, theme.TEXT_MUTED)
+        self.screen.blit(lbl, (12, by + BOTTOM_BAR_HEIGHT // 2 - lbl.get_height() // 2))

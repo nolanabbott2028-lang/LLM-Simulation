@@ -1,2 +1,7 @@
 pygame==2.6.1
 ollama==0.2.1
+pytest==7.4.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+# PEP 604 / 585 in annotations on Python 3.8–3.9 (Pydantic / FastAPI)
+eval-type-backport>=0.2.0; python_version < "3.10"

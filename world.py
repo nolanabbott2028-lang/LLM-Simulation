@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import threading
+from collections import deque
+from threading import RLock
 from dataclasses import dataclass, field
 from config import WORLD_TILES_W, WORLD_TILES_H, PILLAR_NAMES, ERA_THRESHOLDS
 from entities.sim import Sim
@@ -21,10 +25,23 @@ class WorldState:
     laws: list = field(default_factory=list)
     technologies: list = field(default_factory=list)
     milestones: set = field(default_factory=set)
+    language_progress: float = 0.0  # 0–100 shared speech arc (see language.py)
+    # Simulation subsystems (see simulation/)
+    global_events: list = field(default_factory=list)
+    crime_log: list = field(default_factory=list)
+    prices: dict = field(default_factory=dict)
+    power_map: dict = field(default_factory=dict)
+    faction_manager: object | None = None  # set by WorldEngine
+    timeline_events: list = field(default_factory=list)
+    active_wars: list = field(default_factory=list)
+    era_pressure_label: str | None = None
+    trade_flow_events: deque = field(default_factory=lambda: deque(maxlen=120))
+    dashboard_bookmark: dict | None = None
+    dashboard_replay_enabled: bool = True
     sim_running: bool = False
     paused: bool = False
     speed: int = 1
-    lock: threading.Lock = field(default_factory=threading.Lock)
+    lock: threading.RLock = field(default_factory=RLock)
 
     def add_sim(self, sim: Sim):
         with self.lock:

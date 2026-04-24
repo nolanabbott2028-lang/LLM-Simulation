@@ -19,6 +19,8 @@ def test_save_and_load_roundtrip():
     w.technologies.append("stone tool")
     w.sim_year = 3
     w.sim_day = 42
+    w.language_progress = 22.5
+    s.language_fluency = 30.0
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         path = f.name
@@ -36,4 +38,6 @@ def test_save_and_load_roundtrip():
     assert w2.technologies == ["stone tool"]
     assert w2.sim_year == 3
     assert w2.sim_day == 42
+    assert w2.language_progress == 22.5
+    assert w2.sims["adam"].language_fluency == 30.0
     os.unlink(path)

@@ -16,8 +16,10 @@ def draw_inspector(screen: pygame.Surface, sim: Sim, world: WorldState,
         f"Age:    {int(sim.age)}",
         f"Health: {int(sim.health)}/100",
         f"Hunger: {int(sim.hunger)}/100",
+        f"Thirst: {int(sim.thirst)}/100",
         f"Energy: {int(sim.energy)}/100",
         f"Role:   {sim.role or 'none'}",
+        f"Speech (personal): {int(sim.language_fluency)}/100",
         "",
         "Inventory:",
     ]
@@ -34,6 +36,10 @@ def draw_inspector(screen: pygame.Surface, sim: Sim, world: WorldState,
             other = world.sims.get(other_id)
             if other:
                 lines.append(f"  {other.name}: bond={rel.get('bond',0)} trust={rel.get('trust',0)}")
+    lines.append("")
+    with world.lock:
+        lp = world.language_progress
+    lines.append(f"People's speech (shared): {int(lp)}/100")
     lines.append("")
     lines.append("Recent memories:")
     for m in sim.memory[-5:]:
